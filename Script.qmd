@@ -91,3 +91,63 @@ colSums(is.na(data))
 cor(data[sapply(data, is.numeric)])
 ```
 
+## Plots
+
+```{r}
+ggplot(data, aes(x=total_price)) + geom_histogram(binwidth=1) +
+  labs(
+    title = "Histogram cen",
+    x = "Cena",
+    y = "Ilość"
+  )
+
+ggplot(data, aes(x=loyalty_points_earned)) + geom_histogram(binwidth=1) +
+  labs(
+    title = "Histogram zdobytych punktów lojanościowych",
+    x = "Przedziały",
+    y = "Ilość"
+  )
+
+ggplot(data, aes(x = product_category)) +
+  geom_bar() +
+  labs(
+    title = "Liczba transakcji w poszczególnych kategoriach produktów",
+    x = "Kategoria produktu",
+    y = "Liczba transakcji"
+  )
+
+ggplot(data, aes(x=payment_method)) + geom_bar() +
+  labs(
+    title = "Liczba transakcji poszczególnych metod płatniczych",
+    x = "Metoda płatności",
+    y = "Liczba transakcji"
+  )
+
+ggplot(data, aes(x=location)) + geom_bar() +
+  labs(
+    title = "Liczba transakcji w poszczególnych lokalizacjach",
+    x = "Lokalizacja",
+    y = "Liczba transakcji"
+  )
+```
+
+
+```{r}
+hourly_products <- data %>%
+  group_by(hour, product_name) %>%
+  summarise(transactions = n(), .groups = "drop") %>%
+  arrange(hour, desc(transactions)) %>%
+  group_by(hour) %>%
+  slice_max(transactions, n = 3)
+
+
+ggplot(hourly_products, aes(x = factor(hour), y = transactions, fill = product_name)) +
+  geom_col() +
+  labs(
+    title = "Najczęściej kupowany produkt w każdej godzinie",
+    x = "Godzina",
+    y = "Liczba transakcji",
+    fill = "Produkt"
+  ) 
+```
+
