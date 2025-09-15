@@ -39,6 +39,8 @@ library(baguette)
 library(finetune)
 library(doParallel)
 library(DT)
+library(ggplot2)
+library(lubridate)
 
 tidymodels_prefer()
 ```
@@ -49,7 +51,43 @@ data = read.csv("coffee_shop_sales.csv")
 datatable(data)
 ```
 
+## Data
+```{r}
+str(data)
+```
+```{r}
+data <- data |> 
+  as_tibble() |> 
+  janitor::clean_names() |> 
+
+  mutate(
+    transaction_date = as.Date(transaction_date),
+    transaction_datetime = as.POSIXct(
+      paste(transaction_date, transaction_time),
+      format="%Y-%m-%d %H:%M:%S"
+    )
+  ) |> 
+
+  mutate(
+    hour = hour(transaction_datetime)
+  ) |> 
+
+  mutate(
+    wday = wday(transaction_date, label = TRUE, abbr = TRUE),
+    day_work = if_else(wday %in% c("Sat", "Sun"), "weekend", "week"),
+    day_work = factor(day_work)
+  )
+```
 
 ```{r}
-
+data |> summary()
 ```
+
+
+```{r}
+colSums(is.na(data))
+```
+```{r}
+cor(data[sapply(data, is.numeric)])
+```
+
