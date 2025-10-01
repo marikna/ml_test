@@ -261,3 +261,29 @@ prep(basic_rec, training = trans_train) |> juice()
 summary(basic_rec) |> knitr::kable()
 ```
 
+## Workflow
+
+```{r}
+a <- workflow_set(
+  preproc = list(b = basic_rec),
+  models  = list(
+    rpart = cart_spec,
+    ranger = rf_spec,
+    cubist = cubist_spec,
+    glmnet = glmnet_spec,
+    svr = svr_spec
+  )
+)
+
+b <- workflow_set(
+  preproc = list(t = basic_t_rec),
+  models  = list(xgboost = xgb_spec
+  )
+)
+
+basic <- bind_rows(a, b)
+basic$wflow_id <- str_sub(basic$wflow_id, start = 3, end = 100)
+
+basic
+```
+
