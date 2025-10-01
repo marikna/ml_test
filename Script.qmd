@@ -94,36 +94,38 @@ cor(data[sapply(data, is.numeric)])
 ## Plots
 
 ```{r}
-ggplot(data, aes(x=total_price)) + geom_histogram(binwidth=1) +
+ggplot(data, aes(x=total_price)) +
   labs(
     title = "Histogram cen",
     x = "Cena",
     y = "Ilość"
-  )
+  ) + 
+  geom_histogram(binwidth = 1, fill = "cadetblue", color = "black")
 
-ggplot(data, aes(x=loyalty_points_earned)) + geom_histogram(binwidth=1) +
+ggplot(data, aes(x=loyalty_points_earned)) + 
   labs(
     title = "Histogram zdobytych punktów lojanościowych",
     x = "Przedziały",
     y = "Ilość"
-  )
+  ) + 
+  geom_histogram(binwidth = 1, fill = "cadetblue", color = "black")
 
 ggplot(data, aes(x = product_category)) +
-  geom_bar() +
+  geom_bar(fill = "cadetblue", color = "black") +
   labs(
     title = "Liczba transakcji w poszczególnych kategoriach produktów",
     x = "Kategoria produktu",
     y = "Liczba transakcji"
-  )
+  ) 
 
-ggplot(data, aes(x=payment_method)) + geom_bar() +
+ggplot(data, aes(x=payment_method)) + geom_bar(fill = "cadetblue", color = "black") +
   labs(
     title = "Liczba transakcji poszczególnych metod płatniczych",
     x = "Metoda płatności",
     y = "Liczba transakcji"
   )
 
-ggplot(data, aes(x=location)) + geom_bar() +
+ggplot(data, aes(x=location)) + geom_bar(fill = "cadetblue", color = "black") +
   labs(
     title = "Liczba transakcji w poszczególnych lokalizacjach",
     x = "Lokalizacja",
@@ -148,6 +150,11 @@ ggplot(hourly_products, aes(x = factor(hour), y = transactions, fill = product_n
     x = "Godzina",
     y = "Liczba transakcji",
     fill = "Produkt"
-  ) 
+  )
+```
+## Formula
+
+```{r}
+forms <- formula(total_price ~ .)
 ```
 
