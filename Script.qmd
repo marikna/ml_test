@@ -287,3 +287,82 @@ basic$wflow_id <- str_sub(basic$wflow_id, start = 3, end = 100)
 basic
 ```
 
+## Parameters
+```{r}
+#n nrow i p predyktory
+
+cart_param <- cart_spec |>
+  extract_parameter_set_dials() |>
+  update(
+    min_n = min_n(c(5, 30)) # <1% z n
+  )
+
+
+rf_param <- rf_spec |>
+  extract_parameter_set_dials() |> 
+  update(
+    min_n = min_n(c(5, 30)),
+    mtry =  mtry(c(4, 9)),   # sqrt i polowa p
+    trees = trees(c(100, 500))
+  )
+
+
+xgb_param <- xgb_spec |> 
+  extract_parameter_set_dials() |> 
+  update(
+    min_n = min_n(c(5, 30)), 
+    trees = trees(c(100, 500)), 
+    tree_depth = tree_depth(c(2,10)),
+    learn_rate = learn_rate(c(0.01, 0.3)),
+    loss_reduction = loss_reduction(c(0, 5)),
+    sample_size = sample_prop(c(0.5, 1))
+  )
+
+
+cubist_param <- cubist_spec |> 
+  extract_parameter_set_dials() |> 
+  update(
+    committees = committees(c(1, 10)),
+    neighbors  = neighbors(c(0, 5))
+  )
+
+
+glmnet_param <- glmnet_spec |> 
+  extract_parameter_set_dials() |> 
+  update(
+    penalty = penalty(c(0.001, 1)),
+    mixture = mixture(c(0, 1))
+  )
+
+
+svr_param <- svr_spec |> 
+  extract_parameter_set_dials() |> 
+  update(
+    cost = cost(c(0.1, 10)),
+    rbf_sigma = rbf_sigma(c(0.001, 1))
+  )
+
+
+basic <- basic |> option_add(param_info = cart_param, id = "rpart")
+basic <- basic |> option_add(param_info = rf_param, id = "ranger")
+basic <- basic |> option_add(param_info = xgb_param, id = "xgboost")
+basic <- basic |> option_add(param_info = cubist_param, id = "cubist")
+basic <- basic |> option_add(param_info = glmnet_param, id = "glmnet")
+basic <- basic |> option_add(param_info = svr_param, id = "svr")
+
+
+basic
+```
+
+```{r}
+basic |>
+  split(~wflow_id) |>
+  map(
+    \(x) extract_parameter_set_dials(
+      x = x,
+      id = x$wflow_id
+    ) |>
+      _$object
+  )
+```
+
