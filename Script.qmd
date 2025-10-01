@@ -236,3 +236,28 @@ svr_spec <- svm_rbf(
   set_mode("regression")
 ```
 
+## Recipe
+
+```{r}
+basic_rec <- recipe(total_price ~ ., data = trans_train) %>%
+  update_role(transaction_id, transaction_date, transaction_time,
+              product_id, customer_id, barista_id, new_role = "ID")
+
+basic_t_rec <- recipe(total_price ~ ., data = trans_train) %>%
+  update_role(transaction_id, transaction_date, transaction_time,
+              product_id, customer_id, barista_id, new_role = "ID") %>%
+  step_unknown(all_nominal_predictors()) %>%
+  step_dummy(all_nominal_predictors()) %>%
+  step_zv(all_nominal_predictors())
+
+prep(basic_t_rec, training = trans_train) %>% juice()
+```
+
+```{r}
+prep(basic_rec, training = trans_train) |> juice()
+```
+
+```{r}
+summary(basic_rec) |> knitr::kable()
+```
+
