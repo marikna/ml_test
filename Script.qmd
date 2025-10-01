@@ -158,3 +158,23 @@ ggplot(hourly_products, aes(x = factor(hour), y = transactions, fill = product_n
 forms <- formula(total_price ~ .)
 ```
 
+## Data split
+
+```{r}
+set.seed(111)
+
+trans_split <- initial_validation_split(data = data, strata = total_price)
+
+trans_train <- training(trans_split)
+trans_test  <- testing(trans_split)
+trans_valid <- validation_set(trans_split)
+
+trans_folds <- vfold_cv(trans_train, strata = total_price, v = 10, repeats = 5) # testowo
+
+save(trans_split, trans_train, trans_test, trans_valid, trans_folds,file = "coffesplitted_data.Rdata")
+```
+
+```{r}
+load("coffesplitted_data.Rdata")
+```
+
