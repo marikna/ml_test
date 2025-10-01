@@ -41,6 +41,7 @@ library(doParallel)
 library(DT)
 library(ggplot2)
 library(lubridate)
+library(future)
 
 tidymodels_prefer()
 ```
@@ -218,21 +219,19 @@ xgb_spec <- boost_tree(
   set_engine("xgboost") %>%
   set_mode("regression")
 
-# Lasso
-glmnet_spec <- linear_reg(
-  penalty = tune(),
-  mixture = tune() 
+# MARS
+mars_spec <- mars(
+  num_terms = tune(),
+  prod_degree = tune()
 ) %>%
-  set_engine("glmnet") %>%
+  set_engine("earth") %>%
   set_mode("regression")
 
-# Support Vector Regression
-svr_spec <- svm_rbf(
-  cost = tune(),
-  rbf_sigma = tune(),
-  margin = tune()
+# knn
+knn_spec <- nearest_neighbor(
+  neighbors = tune()
 ) %>%
-  set_engine("kernlab") %>%
+  set_engine("kknn") %>%
   set_mode("regression")
 ```
 
@@ -240,15 +239,35 @@ svr_spec <- svm_rbf(
 
 ```{r}
 basic_rec <- recipe(total_price ~ ., data = trans_train) %>%
-  update_role(transaction_id, transaction_date, transaction_time,
-              product_id, customer_id, barista_id, new_role = "ID")
+  step_mutate(hour = as.numeric(hour)) %>%
+  update_role(
+    transaction_id, transaction_date, transaction_time,
+    product_id, customer_id, barista_id,
+    new_role = "ID"
+  )
 
 basic_t_rec <- recipe(total_price ~ ., data = trans_train) %>%
   update_role(transaction_id, transaction_date, transaction_time,
               product_id, customer_id, barista_id, new_role = "ID") %>%
+  step_mutate(
+    transaction_datetime = as.numeric(transaction_datetime),
+    hour = as.numeric(substr(transaction_time, 1, 2))
+  ) %>%
   step_unknown(all_nominal_predictors()) %>%
   step_dummy(all_nominal_predictors()) %>%
   step_zv(all_nominal_predictors())
+
+cubist_rec <- recipe(total_price ~ ., data = trans_train) %>%
+  update_role(transaction_id, transaction_date, transaction_time,
+              product_id, customer_id, barista_id, new_role = "ID") %>%
+  step_mutate(
+    transaction_datetime = as.numeric(transaction_datetime),
+    hour = as.numeric(hour)
+  ) %>%
+  step_unknown(all_nominal_predictors()) %>%
+  step_novel(all_nominal_predictors()) %>%
+  step_string2factor(all_nominal_predictors()) %>%
+  step_zv(all_predictors())
 
 prep(basic_t_rec, training = trans_train) %>% juice()
 ```
@@ -268,10 +287,7 @@ a <- workflow_set(
   preproc = list(b = basic_rec),
   models  = list(
     rpart = cart_spec,
-    ranger = rf_spec,
-    cubist = cubist_spec,
-    glmnet = glmnet_spec,
-    svr = svr_spec
+    ranger = rf_spec
   )
 )
 
@@ -281,7 +297,20 @@ b <- workflow_set(
   )
 )
 
-basic <- bind_rows(a, b)
+c <- workflow_set(
+  preproc = list(cubist = cubist_rec),
+  models = list(cubist = cubist_spec)
+)
+
+d <- workflow_set(
+  preproc = list(transformed = basic_rec),
+  models = list(
+    mars = mars_spec,
+    knn  = knn_spec
+  )
+)
+
+basic <- bind_rows(a, b, c, d)
 basic$wflow_id <- str_sub(basic$wflow_id, start = 3, end = 100)
 
 basic
@@ -327,28 +356,28 @@ cubist_param <- cubist_spec |>
   )
 
 
-glmnet_param <- glmnet_spec |> 
-  extract_parameter_set_dials() |> 
+mars_param <- mars_spec |>
+  extract_parameter_set_dials() |>
   update(
-    penalty = penalty(c(0.001, 1)),
-    mixture = mixture(c(0, 1))
+    num_terms = num_terms(c(2, 30)),
+    prod_degree = prod_degree(c(1, 2))
   )
 
 
-svr_param <- svr_spec |> 
-  extract_parameter_set_dials() |> 
+knn_param <- knn_spec |>
+  extract_parameter_set_dials() |>
   update(
-    cost = cost(c(0.1, 10)),
-    rbf_sigma = rbf_sigma(c(0.001, 1))
+    neighbors = neighbors(c(3, 15))
   )
+
 
 
 basic <- basic |> option_add(param_info = cart_param, id = "rpart")
 basic <- basic |> option_add(param_info = rf_param, id = "ranger")
 basic <- basic |> option_add(param_info = xgb_param, id = "xgboost")
 basic <- basic |> option_add(param_info = cubist_param, id = "cubist")
-basic <- basic |> option_add(param_info = glmnet_param, id = "glmnet")
-basic <- basic |> option_add(param_info = svr_param, id = "svr")
+basic <- basic |> option_add(param_info = mars_param, id = "mars")
+basic <- basic |> option_add(param_info = knn_param, id = "knn")
 
 
 basic
@@ -365,4 +394,73 @@ basic |>
       _$object
   )
 ```
+
+## Grid and tune
+
+```{r}
+race_ctrl <- control_race(
+  save_pred = TRUE,
+  parallel_over = "everything",
+  save_workflow = FALSE,
+  verbose = TRUE
+)
+
+```
+
+```{r}
+cores <- parallel::detectCores(logical = FALSE)
+cl <- makePSOCKcluster(cores)
+registerDoParallel(cl)
+
+race_models <- basic |> 
+  filter(wflow_id %in% c("rpart", "ranger", "bist_cubist", "xgboost"))
+
+time_race <- Sys.time()
+race_result <- workflow_map(
+  race_models,
+  "tune_race_anova",
+  seed = 111,
+  resamples = trans_folds,
+  grid = 50,
+  control = race_ctrl,
+  verbose = TRUE,
+  metrics = metric_set(rmse, mae, rsq)
+)
+
+Sys.time() - time_race
+
+```
+
+```{r}
+grid_ctrl <- control_grid(
+  save_pred = TRUE,
+  parallel_over = "everything"
+)
+
+# workflow_set już masz
+grid_models <- workflow_set(
+  preproc = list(transformed = basic_t_rec),
+  models = list(
+    mars = mars_spec,
+    knn  = knn_spec
+  )
+)
+
+# strojenie wszystkich workflowów naraz
+grid_result <- workflow_map(
+  grid_models,
+  "tune_grid",
+  resamples = trans_folds,
+  grid = 20,
+  metrics = metric_set(rmse, mae, rsq),
+  control = grid_ctrl
+)
+
+
+stopCluster(cl)
+
+save(race_result, grid_result, file = "tune_results_split.Rdata")
+```
+
+
 
