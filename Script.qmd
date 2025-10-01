@@ -462,5 +462,39 @@ stopCluster(cl)
 save(race_result, grid_result, file = "tune_results_split.Rdata")
 ```
 
+## Best model selection
 
+```{r}
+load("tune_results_split.Rdata")
+combined_results <- bind_rows(race_result, grid_result)
+
+best_results <-
+  combined_results |>
+  split(~wflow_id) |>
+  map(
+    \(x)
+      extract_workflow_set_result(x = x, id = x$wflow_id) |>
+      select_best(metric = "rmse", )
+  )
+
+best_models <-
+  combined_results |>
+  split(~wflow_id) |>
+  map(
+    \(x) 
+      extract_workflow(x = x, id = x$wflow_id) |>
+      finalize_workflow(best_results[[x$wflow_id]]) |>
+      last_fit(
+        split = trans_split, 
+        metrics = metric_set(rmse, rsq, mae)
+        )
+  )
+
+save(best_models, file = "best_models.rdata")
+```
+
+```{r}
+load("tune_result.Rdata")
+load("best_models.rdata")
+```
 
