@@ -776,3 +776,181 @@ all_fit_metrics[["transformed_knn"]] |>
 
 ```
 Każda z opcji jest dobra - małe różnice
+
+
+## Result best models
+
+```{r}
+p <-
+  best_models |>
+  map_dfr(.f = \(x) collect_metrics(x = x), .id = "mod") |>
+  mutate(mod = factor(mod, levels = c("rpart", "ranger", "bist_cubist", "xgboost", "transformed_mars", "transformed_knn"))) |>
+  ggplot(aes(mod, .estimate, colour = mod)) +
+  geom_point() +
+  facet_wrap(~.metric, scales = "free_y") +
+  theme_bw() +
+  labs(
+    x = "Model",
+    y = "Wartosc metryki",
+    colour = "Model"
+  ) + 
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+p
+```
+
+```{r}
+ggsave(
+  filename = "rys_4_test_result_model.jpeg", device = "jpeg",
+  width = 8.5, height = 3, dpi = 300
+)
+```
+
+Testowy vs walidacyjny
+
+```{r}
+por_test_valid <-
+  bind_rows(
+  best_models |>
+      map_dfr(\(x) collect_metrics(x = x), .id = "mod") |>
+      select(mod, .metric, .estimate) |>
+      rename(mean = .estimate) |>
+      mutate(typ = "testowy"),
+    combined_results |>
+      rank_results(select_best = T) |>
+      select(wflow_id, .metric, mean) |>
+      rename(mod = wflow_id) |>
+      mutate(typ = "walidacyjny")
+  ) |>
+  pivot_wider(
+    names_from = typ,
+    values_from = mean
+  )
+
+por_test_valid |>
+  gt::gt()  |> 
+  gt::fmt_number(n_sigfig = 3)
+```
+
+```{r}
+por_test_valid |>
+  filter(.metric == "rmse") |> 
+  ggplot(aes(walidacyjny, testowy, colour = mod)) +
+  geom_point(size = 4) +
+  theme_bw() +
+  geom_abline(slope = 1) +
+  labs(
+    x = "Walidacyjny",
+    y = "Testowy",
+    colour = "Model"
+  ) +
+  coord_fixed(ratio = 1) +
+  xlim(2.5, 3) + ylim(2.5, 3)
+```
+
+```{r}
+por_test_valid |>
+  filter(.metric == "rsq") |> 
+  ggplot(aes(walidacyjny, testowy, colour = mod)) +
+  geom_point(size = 4) +
+  theme_bw() +
+  geom_abline(slope = 1) +
+  labs(
+    x = "Walidacyjny",
+    y = "Testowy",
+    colour = "Model"
+  ) +
+  coord_fixed(ratio = 1) +
+  expand_limits(x = c(0,0.25), y = c(0,0.25)) +
+  scale_x_continuous(expand = c(0,0), breaks = seq(0, 0.25, 0.05)) +
+  scale_y_continuous(expand = c(0,0), breaks = seq(0, 0.25, 0.05)) 
+```
+
+```{r}
+por_test_valid |>
+  filter(.metric == "mae") |> 
+  ggplot(aes(walidacyjny, testowy, colour = mod)) +
+  geom_point(size = 4) +
+  theme_bw() +
+  geom_abline(slope = 1) +
+  labs(
+    x = "Walidacyjny",
+    y = "Testowy",
+    colour = "Model"
+  ) +
+  coord_fixed(ratio = 1) +
+  expand_limits(x = c(0,3), y = c(0,3)) +
+  scale_x_continuous(expand = c(0,0), breaks = seq(0, 3, 0.5)) +
+  scale_y_continuous(expand = c(0,0), breaks = seq(0, 3, 0.5)) 
+```
+
+Wykres rozrzutu 
+
+```{r}
+my_breaks <- c(1, 4, 9, 16, 25, 36, 49, 64, 81, 100)
+
+range_axis_x_y <-
+  best_models |>
+  map_dfr(
+    \(x) augment(x = x),
+    .id = "mod"
+  ) |>
+  summarise(max = max(max(total_price), max(.pred))) |>
+  pull()
+
+best_models |>
+  map_dfr(
+    \(x) augment(x = x),
+    .id = "mod"
+  ) |>
+  ggplot(aes(total_price, .pred)) +
+  geom_hex() +
+  facet_wrap(~mod) +
+  geom_abline(slope = rep(c(1.5, 0.5, 1), 4)) +
+  theme_bw() +
+  viridis::scale_fill_viridis(
+    breaks = my_breaks,
+    labels = my_breaks,
+    option = "D",
+    direction = 1,
+    trans = scales::pseudo_log_trans(sigma = 1)
+  ) +
+  scale_x_continuous(expand = c(0, 0), limits = c(0, range_axis_x_y)) +
+  scale_y_continuous(expand = c(0, 0), limits = c(0, range_axis_x_y)) +
+  coord_obs_pred() +
+  labs(
+    x = expression("Cena całkowita"),
+    y = expression("Cena całkowita"),
+    fill = "Czestosc", title = "Ocena na zestawie testowym"
+  )
+```
+```{r}
+ggsave(
+  filename = "fig_2_Best_models_for_test_data.jpeg",
+  device = "jpeg",
+  width = 8.00,
+  height = 4.60,
+  dpi = 300
+)
+```
+
+```{r}
+best_models |>
+  map_dfr(
+    \(x) augment(x = x),
+    .id = "mod"
+  ) |>
+  openair::modStats(mod = ".pred", obs = "total_price", type = "mod") |>
+  arrange(FAC2) |>
+  select(-P) |>
+  gt::gt() |>
+  gt::fmt_number(columns = FAC2:IOA, n_sigfig = 3)
+```
+
+Najniższe RMSE: cubist
+Najwyższe r: cubist
+Najwyższe IOA: cubist ( Index of Agreement based on Willmott et al. (2011), which spans between -1 and +1 with values approaching +1 representing better model performance)
+Najwyższe FAC2: dla cubist wyjątkowo dobre oszacowanie, bliskie 1.
+
+Cubist wypadł najlepiej, modele drzew również dobrze sobie radzą, modele transformacyjne działają słabiej. 
+Top3: cubist, rpart, xgboost.
