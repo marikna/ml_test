@@ -245,7 +245,7 @@ basic_rec <- recipe(total_price ~ ., data = trans_train) %>%
     product_id, customer_id, barista_id,
     new_role = "ID"
   ) %>%
-  step_rm(quantity, unit_price, loyalty_points_earned)
+  step_rm(quantity, loyalty_points_earned)
 
 basic_t_rec <- recipe(total_price ~ ., data = trans_train) %>%
   update_role(transaction_id, transaction_date, transaction_time,
@@ -254,7 +254,7 @@ basic_t_rec <- recipe(total_price ~ ., data = trans_train) %>%
     transaction_datetime = as.numeric(transaction_datetime),
     hour = as.numeric(hour)
   ) %>%
-  step_rm(quantity, unit_price, loyalty_points_earned) %>%
+  step_rm(quantity, loyalty_points_earned) %>%
   step_unknown(all_nominal_predictors()) %>%
   step_dummy(all_nominal_predictors()) %>%
   step_zv(all_nominal_predictors())
@@ -266,7 +266,7 @@ cubist_rec <- recipe(total_price ~ ., data = trans_train) %>%
     transaction_datetime = as.numeric(transaction_datetime),
     hour = as.numeric(hour)
   ) %>%
-  step_rm(quantity, unit_price, loyalty_points_earned) %>%
+  step_rm(quantity, loyalty_points_earned) %>%
   step_unknown(all_nominal_predictors()) %>%
   step_novel(all_nominal_predictors()) %>%
   step_string2factor(all_nominal_predictors()) %>%
@@ -947,10 +947,14 @@ best_models |>
   gt::fmt_number(columns = FAC2:IOA, n_sigfig = 3)
 ```
 
-Najniższe RMSE: cubist
-Najwyższe r: cubist
-Najwyższe IOA: cubist ( Index of Agreement based on Willmott et al. (2011), which spans between -1 and +1 with values approaching +1 representing better model performance)
-Najwyższe FAC2: dla cubist wyjątkowo dobre oszacowanie, bliskie 1.
+- Najniższe RMSE: cubist
+- Najwyższe r: rpart, mars
+- Najwyższe IOA: cubist ( Index of Agreement based on Willmott et al. (2011), which spans between -1 and +1 with values approaching +1 representing better model performance)
+- Najwyższe FAC2: mars, wyjątkowo dobre oszacowanie, bliskie 1.
 
+<br>
 Cubist wypadł najlepiej, modele drzew również dobrze sobie radzą, modele transformacyjne działają słabiej. 
-Top3: cubist, rpart, xgboost.
+<br>
+Top3: cubist, rpart, mars
+
+
