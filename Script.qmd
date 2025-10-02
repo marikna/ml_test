@@ -244,15 +244,17 @@ basic_rec <- recipe(total_price ~ ., data = trans_train) %>%
     transaction_id, transaction_date, transaction_time,
     product_id, customer_id, barista_id,
     new_role = "ID"
-  )
+  ) %>%
+  step_rm(quantity, unit_price, loyalty_points_earned)
 
 basic_t_rec <- recipe(total_price ~ ., data = trans_train) %>%
   update_role(transaction_id, transaction_date, transaction_time,
               product_id, customer_id, barista_id, new_role = "ID") %>%
   step_mutate(
     transaction_datetime = as.numeric(transaction_datetime),
-    hour = as.numeric(substr(transaction_time, 1, 2))
+    hour = as.numeric(hour)
   ) %>%
+  step_rm(quantity, unit_price, loyalty_points_earned) %>%
   step_unknown(all_nominal_predictors()) %>%
   step_dummy(all_nominal_predictors()) %>%
   step_zv(all_nominal_predictors())
@@ -264,6 +266,7 @@ cubist_rec <- recipe(total_price ~ ., data = trans_train) %>%
     transaction_datetime = as.numeric(transaction_datetime),
     hour = as.numeric(hour)
   ) %>%
+  step_rm(quantity, unit_price, loyalty_points_earned) %>%
   step_unknown(all_nominal_predictors()) %>%
   step_novel(all_nominal_predictors()) %>%
   step_string2factor(all_nominal_predictors()) %>%
@@ -498,3 +501,278 @@ load("tune_result.Rdata")
 load("best_models.rdata")
 ```
 
+## Result tune
+
+```{r}
+combined_results |>
+  split(~wflow_id) |>
+  map(
+    \(x) 
+      extract_workflow_set_result(x = x, id = x$wflow_id) |> 
+      show_best(metric = "rmse", n = 1) |> 
+      select(-n, -.metric, -.config)
+  ) |>
+  knitr::kable()
+```
+
+```{r}
+combined_results |> 
+  rank_results(select_best = T) |> 
+  unite("rate", c("mean", "std_err"), sep = "/") |> 
+  pivot_wider(names_from = .metric, values_from = rate) |>
+  separate_wider_delim(
+    cols = mae:rsq, 
+    delim = "/", 
+    names = c("", "_std_err"), 
+    names_sep = "") |> 
+  select(-preprocessor, -n, -model) |>
+  mutate(.config = str_sub(.config, 20, 30)) |> 
+  mutate(across(
+    .cols = mae:rsq_std_err, 
+    .fns = \(x) signif(x = as.numeric(x), digits = 3)
+  )) |> arrange(mae) |> 
+  gt::gt() |> 
+  gt::tab_header(title = "Wyniki oceny dla zestawu walidacyjnego")
+```
+
+```{r}
+combined_results |>  
+  rank_results(select_best = T) |>
+  mutate(wflow_id = fct_reorder(wflow_id, rank)) |> 
+  ggplot(aes(wflow_id, mean, colour = wflow_id)) +
+  geom_point() +
+  geom_errorbar(aes(ymin = mean - 1.96 * std_err,
+                    ymax = mean + 1.96 * std_err), width = 0.8) +
+  facet_wrap(~.metric, scales = "free_y") +
+  theme_bw() + 
+  labs(x = "model", 
+       y = "value metric", 
+       colour = "model") +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+```
+```{r}
+ggsave(filename = "rys. 3._valid_result_model.jpeg", device = "jpeg", 
+       width = 8.5, height = 3, dpi = 300)
+```
+
+```{r}
+all_fit_metrics <-
+  combined_results |>
+  split(~wflow_id) |>
+  map(
+    \(x)
+    extract_workflow_set_result(x = x, id = x$wflow_id) |>
+      _$.metrics |>
+      _[[1]] |> 
+      mutate(.config = str_sub(.config, 20, 24))
+  )    
+```
+
+### Ranger
+
+```{r}
+c("mae", "rmse", "rsq") |> 
+  map_dfr(
+    \(x) 
+    combined_results |> 
+      extract_workflow_set_result(id = "ranger") |> 
+      select_best(metric = x), .id = ".metric") |> 
+  gt::gt()
+```
+
+```{r}
+all_fit_metrics[["ranger"]] |>                              # Zmień model ...
+  filter(.metric == "rmse") |>                               # Zmień statystykę rsq, mae 
+  ggplot(aes(trees, .estimate, color = factor(min_n))) +
+  geom_point() +
+  facet_wrap(~mtry) +
+  scale_x_continuous(limits = c(0, 600), breaks = seq(0, 600, 100)) +
+  ggtitle(label = "ranger") +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+```
+Najlepszy mtry = 4
+300/400 drzew jest wystarczjaące
+Najniższe RMSE dla sporej liczby min_n - koło 25, drzewa płytsze i zgeneralizowane
+
+```{r}
+all_fit_metrics[["ranger"]] |> 
+  filter(.metric == "rmse", .estimate < 2.74) |> 
+  arrange(.estimate) |> 
+  gt::gt()
+
+```
+Najlepsze parametry z config 07
+
+
+### Cubist
+
+```{r}
+c("mae", "rmse", "rsq") |> 
+  map_dfr(
+    \(x) 
+    combined_results |> 
+      extract_workflow_set_result(id = "bist_cubist") |> 
+      select_best(metric = x), .id = ".metric") |> 
+  gt::gt()
+```
+
+```{r}
+all_fit_metrics[["bist_cubist"]] |>                               # Zmień model ...
+  filter(.metric == "rmse") |>                               # Zmień statystykę rsq, mae 
+  ggplot(aes(committees, .estimate, color = factor(neighbors))) +
+  geom_point(position = position_jitter(width = 0.5, height = 0)) +
+  facet_wrap(~neighbors, scales = "free_y") +
+  scale_x_continuous(limits = c(0, 120), breaks = seq(0, 120, 20), expand = c(0, 0)) +
+  ggtitle(label = "Cubist") +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+```
+
+Najlepsze neighbors 0 i dla najwiekszych im zwiekszam tym sie rmse zmniejsza.
+
+
+```{r}
+all_fit_metrics[["bist_cubist"]] |>                               # Zmień model ...
+  filter(.metric == "rmse") |>                               # Zmień statystykę rsq, mae 
+  filter(between(neighbors, 7, 9)) |> 
+  ggplot(aes(committees, .estimate, color = factor(neighbors))) +
+  geom_point() +
+  geom_line() +
+  scale_x_continuous(limits = c(0, 120), breaks = seq(0, 120, 20), expand = c(0, 0)) +
+  ggtitle(label = "Cubist")
+```
+
+```{r}
+all_fit_metrics[["bist_cubist"]] |> 
+  filter(.metric == "rmse", .estimate < 2.86) |> 
+  arrange(.estimate) |> 
+  gt::gt()
+```
+Dla małych neighbors dodatkowe komisje nie mają sensu, model jest już optymalny.
+Dla większych neighbors dodanie komisji nieznacznie zmienia RMSE, efekt jest minimalny.
+
+### Rpart
+
+```{r}
+c("mae", "rmse", "rsq") |> 
+  map_dfr(
+    \(x) 
+    combined_results |> 
+      extract_workflow_set_result(id = "rpart") |> 
+      select_best(metric = x) |>
+      mutate(.metric = x)) |> 
+  gt::gt()
+
+```
+
+```{r}
+all_fit_metrics[["rpart"]] |>                                # Zmień model ...
+  filter(.metric == "rmse") |>                               # Zmień statystykę rsq, mae 
+  ggplot(aes(cost_complexity, .estimate, color = factor(min_n))) +
+  geom_point() +
+  geom_line() +
+#  facet_wrap(~min_n) +
+  scale_x_log10(breaks = breaks_log(n = 10, base = 10), labels = label_log(base = 10)) +
+  labs(title =  "rpart", color = "min_n", y = "rmse")
+```
+```{r}
+all_fit_metrics[["rpart"]] |>
+  filter(.metric == "rmse") |>
+  slice_min(.estimate, n = 3)
+```
+
+### xgboost
+
+```{r}
+c("mae", "rmse", "rsq") |> 
+  map_dfr(
+    \(x) 
+    combined_results |> 
+      extract_workflow_set_result(id = "xgboost") |> 
+      select_best(metric = x) |>
+      mutate(.metric = x)) |> 
+  gt::gt()
+```
+
+```{r}
+all_fit_metrics[["xgboost"]] |>                                # Zmień model ...
+  filter(.metric == "rmse") |>                               # Zmień statystykę rsq, mae 
+  ggplot(aes(trees, .estimate, color = factor(min_n))) +
+  geom_point() +
+  facet_wrap(~tree_depth, scales = "free_y") +
+  labs(title =  "xgboost", color = "min_n", y = "rmse")
+```
+rmse <2.8
+
+```{r}
+all_fit_metrics[["xgboost"]] |>                                # Zmień model ...
+  filter(.metric == "rmse", .estimate < 2.8) |>                               # Zmień statystykę rsq, mae 
+  ggplot(aes(trees, .estimate, color = factor(min_n))) +
+  geom_point() +
+  facet_wrap(~tree_depth) +
+  labs(title =  "xgboost", color = "min_n", y = "rmse")
+```
+min_n 9 oraz depth 5
+
+
+### Transformed mars
+
+```{r}
+c("mae", "rmse", "rsq") |> 
+  map_dfr(
+    \(x) 
+      combined_results |> 
+      extract_workflow_set_result(id = "transformed_mars") |> 
+      select_best(metric = x), .id = ".metric") |> 
+  gt::gt()
+```
+
+
+```{r}
+all_fit_metrics[["transformed_mars"]] |>                              
+  filter(.metric == "rmse") |>                              
+  ggplot(aes(num_terms, .estimate, color = factor(prod_degree))) + 
+  geom_point() +
+  geom_line() +
+  facet_wrap(~prod_degree, scales = "free_y") +
+  ggtitle(label = "transformed_mars") +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+```
+
+minimalne różnice
+
+### knn
+
+```{r}
+c("mae", "rmse", "rsq") |> 
+  map_dfr(
+    \(x) 
+      combined_results |> 
+      extract_workflow_set_result(id = "transformed_knn") |> 
+      select_best(metric = x), .id = ".metric") |> 
+  gt::gt()
+
+```
+```{r}
+colnames(all_fit_metrics[["transformed_knn"]])
+```
+
+```{r}
+all_fit_metrics[["transformed_knn"]] |>                              
+  filter(.metric == "rmse") |>                              
+  ggplot(aes(neighbors, .estimate, color = factor(neighbors))) +  
+  geom_point() +
+  geom_line(aes(group = 1)) + 
+  ggtitle(label = "transformed_knn") +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+```
+RMSE maleje wraz ze wzrostem sasiadow
+
+```{r}
+all_fit_metrics[["transformed_knn"]] |> 
+  filter(.metric == "rmse", .estimate < 2.87) |> 
+  arrange(.estimate) |> 
+  gt::gt()
+
+```
+Każda z opcji jest dobra - małe różnice
